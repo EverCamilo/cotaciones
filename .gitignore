@@ -6,3 +6,4 @@ vite.config.ts.*
 *.tar.gz
 # Firebase credentials
 firebase-admin-credentials.json
+.idx/integrations.json
