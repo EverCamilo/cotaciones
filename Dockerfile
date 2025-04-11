@@ -8,8 +8,9 @@ WORKDIR /app
 COPY pyproject.toml uv.lock* ./
 
 # Instale as dependências usando uv e o lockfile
-# Assume que uv está disponível na imagem base ou instale-o se necessário
-# RUN pip install uv
+# Instale uv primeiro usando pip
+RUN pip install uv
+# Agora use uv para instalar as dependências do projeto
 RUN uv pip install --system --locked
 
 # Copie o restante do código do serviço de ML
