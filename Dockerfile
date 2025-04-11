@@ -23,8 +23,8 @@ COPY ml_service/models/ ./ml_service/models/
 # Informe ao Docker qual porta seu serviço Python ouvirá (ex: 8080 para Cloud Run)
 EXPOSE 8080
 
-# Comando para iniciar seu serviço Python (Adapte com seu entrypoint e framework)
-# Exemplo para FastAPI com Uvicorn (substitua ml_service.main:app)
-CMD ["uvicorn", "ml_service.main:app", "--host", "0.0.0.0", "--port", "8080"]
+# Comando para iniciar seu serviço Python usando python -m para robustez
+# Adapte com seu entrypoint e framework, se necessário
+CMD ["python", "-m", "uvicorn", "ml_service.main:app", "--host", "0.0.0.0", "--port", "8080"]
 # Exemplo para Flask com Gunicorn (substitua ml_service.predict:app)
-# CMD ["gunicorn", "-b", "0.0.0.0:8080", "ml_service.predict:app"]
+# CMD ["python", "-m", "gunicorn", "-b", "0.0.0.0:8080", "ml_service.predict:app"]
