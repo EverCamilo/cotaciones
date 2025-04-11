@@ -10,8 +10,10 @@ COPY pyproject.toml uv.lock* ./
 # Instale as dependências usando uv e o lockfile
 # Instale uv primeiro usando pip
 RUN pip install uv
-# Agora use uv sync para instalar as dependências do projeto com base no lockfile, especificando o pyproject.toml
-RUN uv pip sync --system pyproject.toml
+# Gere requirements.txt a partir do lock file
+RUN uv pip freeze > requirements.txt
+# Instale as dependências a partir do requirements.txt gerado
+RUN uv pip install --system -r requirements.txt
 
 # Copie o restante do código do serviço de ML
 # Ajuste o caminho se o Dockerfile não estiver na raiz
