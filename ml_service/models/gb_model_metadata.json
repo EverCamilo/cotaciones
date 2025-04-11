@@ -1,0 +1,36 @@
+{
+  "model_type": "GradientBoosting",
+  "training_date": "2025-04-10T23:20:32.596932",
+  "metrics": {
+    "r2": 0.992910666086145,
+    "rmse": 3.821801651804121,
+    "mae": 1.766847677883324,
+    "cv_rmse": 3.8857181580218776,
+    "pct_diff": 0.012180254409289533,
+    "feature_importance": {
+      "KM": 0.6018386146366121,
+      "M\u00eas": 0.0376543674279975,
+      "Trimestre": 0.00011114384045572142,
+      "Ano": 0.08111280767207649,
+      "Lat_Origem": 0.0036948343869754275,
+      "Lng_Origem": 0.04494684218006514,
+      "Lat_Destino": 0.05110303758538278,
+      "Lng_Destino": 0.02053213313191564,
+      "Valor_por_km": 0.15900621913851912
+    }
+  },
+  "n_samples": 3228,
+  "features": [
+    "KM",
+    "M\u00eas",
+    "Trimestre",
+    "Ano",
+    "Lat_Origem",
+    "Lng_Origem",
+    "Lat_Destino",
+    "Lng_Destino",
+    "Valor_por_km"
+  ],
+  "coordinate_radius": 50,
+  "model_description": "Modelo natural com dados reais de frete"
+}

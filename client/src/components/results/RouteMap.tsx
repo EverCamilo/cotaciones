@@ -1,0 +1,609 @@
+import { useState, useMemo, useCallback, useEffect } from "react";
+import { Card, CardContent } from "../ui/card";
+import { Maximize, RefreshCw, ZoomIn, ZoomOut } from "lucide-react";
+import { Button } from "../ui/button";
+import { GoogleMap, useJsApiLoader, Marker, DirectionsRenderer, InfoWindow } from '@react-google-maps/api';
+
+// Corrigindo o problema de recarregamento do script definindo as bibliotecas como constante
+// Isso evita o aviso "Performance warning! LoadScript has been reloaded unintentionally!"
+// Definindo o tipo correto para as bibliotecas
+type Library = 'maps' | 'places' | 'drawing' | 'geometry' | 'visualization';
+const GOOGLE_MAPS_LIBRARIES: Library[] = ['maps'];
+
+// Utilidade para converter LatLng do Google Maps para LatLngLiteral que o componente Marker aceita
+const safeLatLng = (position: google.maps.LatLng | undefined): google.maps.LatLngLiteral | undefined => {
+  if (!position) return undefined;
+  try {
+    return { lat: position.lat(), lng: position.lng() };
+  } catch (error) {
+    console.error("Erro ao converter posição:", error);
+    return undefined;
+  }
+};
+
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+
+// Centrado aproximadamente na fronteira entre Paraguai e Brasil
+const DEFAULT_CENTER = {
+  lat: -24.0,
+  lng: -54.5
+};
+
+const ADUANAS_COORDINATES: Record<string, { lat: number, lng: number }> = {
+  "Guaíra": { lat: -24.0647, lng: -54.2560 },
+  "Salto del Guaíra": { lat: -24.0647, lng: -54.2860 },
+  "Mundo Novo": { lat: -23.9372, lng: -54.2811 },
+  "Foz do Iguaçu": { lat: -25.5469, lng: -54.5882 },
+  "Ciudad del Este": { lat: -25.5167, lng: -54.6167 },
+  "Santa Helena": { lat: -24.8581, lng: -54.3265 },
+  "Puerto Indio": { lat: -24.921943241362257, lng: -54.47763737839428 }
+};
+
+interface RouteMapProps {
+  origin: string;
+  destination: string;
+  customsPoint?: string;
+  totalDistance?: number;
+  customsDetails?: {
+    originLocation?: string;
+    destinationLocation?: string;
+    customsPoint?: string;
+  };
+  distanceSegments?: {
+    originToCustoms?: number;
+    customsToDestination?: number;
+    crossingDistance?: number;
+  };
+  originPlaceId?: string;
+  destinationPlaceId?: string;
+}
+
+const RouteMap = ({
+  origin,
+  destination,
+  customsPoint,
+  totalDistance = 0,
+  customsDetails,
+  distanceSegments,
+  originPlaceId,
+  destinationPlaceId
+}: RouteMapProps) => {
+  const [directions, setDirections] = useState<google.maps.DirectionsResult | null>(null);
+  const [mapZoom, setMapZoom] = useState(6);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  // Use route segments if provided, otherwise calculate rough estimates
+  const originToCustomsDistance = distanceSegments?.originToCustoms || Math.round(totalDistance * 0.4);
+  const customsToDestinationDistance = distanceSegments?.customsToDestination || Math.round(totalDistance * 0.6);
+  const crossingDistance = distanceSegments?.crossingDistance || 5; // Distância de travessia entre aduanas (valor padrão: 5km)
+  
+  // Estado para armazenar as rotas de origem-aduana e aduana-destino
+  const [directionsSegments, setDirectionsSegments] = useState<{
+    originToCustoms: google.maps.DirectionsResult | null,
+    customsToDestination: google.maps.DirectionsResult | null
+  }>({
+    originToCustoms: null,
+    customsToDestination: null
+  });
+  
+  // Função para obter a posição correta do destino
+  const getDestinationPosition = useCallback(() => {
+    // Primeiro tentar usar a localização de término da direção completa
+    if (directions?.routes[0]?.legs[directions.routes[0].legs.length - 1]?.end_location) {
+      return safeLatLng(directions.routes[0].legs[directions.routes[0].legs.length - 1].end_location) || DEFAULT_CENTER;
+    }
+    
+    // Depois tentar usar o segmento de aduana para destino
+    if (directionsSegments.customsToDestination?.routes[0]?.legs[0]?.end_location) {
+      return safeLatLng(directionsSegments.customsToDestination.routes[0].legs[0].end_location) || DEFAULT_CENTER;
+    }
+    
+    // Tentar usar coordenadas diretas do destino, se forem um objeto com lat/lng
+    if (typeof destination === 'object' && destination !== null && 'lat' in destination && 'lng' in destination) {
+      return destination as google.maps.LatLngLiteral;
+    }
+    
+    // Fallback para o centro padrão
+    return DEFAULT_CENTER;
+  }, [directions, directionsSegments, destination]);
+  
+  // Calculate actual total (sum of parts)
+  const calculatedTotalDistance = originToCustomsDistance + crossingDistance + customsToDestinationDistance;
+  
+  // Format location names
+  const originLocation = customsDetails?.originLocation || origin;
+  const destinationLocation = customsDetails?.destinationLocation || destination;
+  const customsPointName = customsDetails?.customsPoint || customsPoint || "Ponto Aduaneiro";
+
+  // Extract Paraguayan and Brazilian aduana names from customsPointName (format: "BR / PY")
+  const customsPointParts = customsPointName?.split('/') || [];
+  const brAduanaName = customsPointParts[0]?.trim() || customsPointName;
+  const pyAduanaName = customsPointParts[1]?.trim() || '';
+  
+  // Carregar API do Google Maps
+  const { isLoaded } = useJsApiLoader({
+    googleMapsApiKey: GOOGLE_MAPS_API_KEY || '',
+    libraries: GOOGLE_MAPS_LIBRARIES, // Usando a constante para evitar recarregamentos
+    id: 'google-map-script'
+  });
+  
+  // Identificar as aduanas paraguaia e brasileira com base no ponto aduaneiro recomendado
+  const brAduanaCoordinates = useMemo(() => {
+    if (brAduanaName && ADUANAS_COORDINATES[brAduanaName]) {
+      return ADUANAS_COORDINATES[brAduanaName];
+    }
+    return null;
+  }, [brAduanaName]);
+  
+  const pyAduanaCoordinates = useMemo(() => {
+    if (pyAduanaName && ADUANAS_COORDINATES[pyAduanaName]) {
+      return ADUANAS_COORDINATES[pyAduanaName];
+    }
+    // Se não encontrar pelo nome paraguaio, tenta encontrar pelo par do brasileiro
+    const paraguayanPairs: Record<string, string> = {
+      "Guaíra": "Salto del Guaíra",
+      "Mundo Novo": "Salto del Guaíra",
+      "Foz do Iguaçu": "Ciudad del Este",
+      "Santa Helena": "Puerto Indio"
+    };
+    
+    const pyPair = paraguayanPairs[brAduanaName];
+    if (pyPair && ADUANAS_COORDINATES[pyPair]) {
+      return ADUANAS_COORDINATES[pyPair];
+    }
+    
+    return null;
+  }, [pyAduanaName, brAduanaName]);
+  
+  const fetchDirections = useCallback(async () => {
+    if (!isLoaded || !origin || !destination) return;
+    
+    setIsLoading(true);
+    
+    try {
+      const directionsService = new google.maps.DirectionsService();
+      
+      // Se tivermos as aduanas identificadas, calcular a rota em segmentos
+      if (brAduanaCoordinates && pyAduanaCoordinates) {
+        // Armazenar mapBounds para calcular o zoom e centro do mapa 
+        const mapBounds = new google.maps.LatLngBounds();
+        
+        try {
+          console.log("Calculando rota da origem para aduana paraguaia e da aduana brasileira para o destino");
+          
+          // 1. Rota da origem até a aduana paraguaia APENAS
+          // A origem deve estar no Paraguai, e o destino deve ser a aduana paraguaia
+          // Isso garante que a rota azul não "invada" o Brasil
+          const originToCustoms = await directionsService.route({
+            origin: originPlaceId ? { placeId: originPlaceId } : origin,
+            destination: { 
+              location: pyAduanaCoordinates
+            },
+            travelMode: google.maps.TravelMode.DRIVING,
+            // Restringe rotas que passem pelo Brasil
+            // usando avoidance nas opções disponíveis
+            avoidHighways: false,
+            avoidTolls: false,
+            avoidFerries: false
+          });
+          
+          // Expandir os limites do mapa para incluir este segmento
+          if (originToCustoms.routes[0]?.bounds) {
+            mapBounds.union(originToCustoms.routes[0].bounds);
+          }
+          
+          // 2. Rota da aduana brasileira ao destino APENAS
+          const customsToDestination = await directionsService.route({
+            origin: { 
+              location: brAduanaCoordinates
+            },
+            destination: destinationPlaceId ? { placeId: destinationPlaceId } : destination,
+            travelMode: google.maps.TravelMode.DRIVING,
+          });
+          
+          // Expandir os limites do mapa para incluir este segmento
+          if (customsToDestination.routes[0]?.bounds) {
+            mapBounds.union(customsToDestination.routes[0].bounds);
+          }
+          
+          // Armazenar os segmentos separados para renderização
+          setDirectionsSegments({
+            originToCustoms: originToCustoms,
+            customsToDestination: customsToDestination
+          });
+          
+          // Adicionar os marcadores das aduanas ao mapBounds para garantir visibilidade
+          if (pyAduanaCoordinates) {
+            mapBounds.extend(new google.maps.LatLng(pyAduanaCoordinates.lat, pyAduanaCoordinates.lng));
+          }
+          
+          if (brAduanaCoordinates) {
+            mapBounds.extend(new google.maps.LatLng(brAduanaCoordinates.lat, brAduanaCoordinates.lng));
+          }
+          
+          // Criar um objeto combinado apenas para fins de zoom/marcadores
+          // Mas as rotas serão renderizadas separadamente
+          const combinedRoutes = {
+            ...originToCustoms,
+            routes: [{
+              ...originToCustoms.routes[0],
+              bounds: mapBounds,
+              legs: [
+                ...(originToCustoms.routes[0]?.legs || [])
+                // Removemos as legs do segundo segmento pois não queremos conectá-los artificialmente
+              ]
+            }]
+          };
+          
+          setDirections(combinedRoutes);
+          console.log("✅ Rotas calculadas com sucesso - segmentos independentes");
+          
+          // Definir um zoom adequado baseado nos bounds
+          if (mapBounds && !mapBounds.isEmpty()) {
+            // Adicionar um pouco de margem
+            const southwest = mapBounds.getSouthWest();
+            const northeast = mapBounds.getNorthEast();
+            const latSpan = northeast.lat() - southwest.lat();
+            const lngSpan = northeast.lng() - southwest.lng();
+            
+            mapBounds.extend(new google.maps.LatLng(
+              southwest.lat() - latSpan * 0.1,
+              southwest.lng() - lngSpan * 0.1
+            ));
+            
+            mapBounds.extend(new google.maps.LatLng(
+              northeast.lat() + latSpan * 0.1,
+              northeast.lng() + lngSpan * 0.1
+            ));
+          }
+        } catch (segmentError) {
+          console.error("Erro ao calcular segmento da rota:", segmentError);
+          
+          // Limpar os segmentos
+          setDirectionsSegments({
+            originToCustoms: null,
+            customsToDestination: null
+          });
+          
+          console.log("⚠️ Erro ao calcular segmento, tentando fallback");
+          throw segmentError; // Re-throw para cair no fallback de rota direta
+        }
+      } else {
+        // Fallback: rota direta se não temos informações de aduana
+        const result = await directionsService.route({
+          origin: originPlaceId ? { placeId: originPlaceId } : origin,
+          destination: destinationPlaceId ? { placeId: destinationPlaceId } : destination,
+          travelMode: google.maps.TravelMode.DRIVING,
+        });
+        
+        setDirections(result);
+        console.log("✅ Rota direta calculada com sucesso!");
+      }
+    } catch (error) {
+      console.error("Erro ao calcular a rota:", error);
+      setIsLoading(false);
+      
+      // Mesmo sem a rota, queremos pelo menos mostrar os marcadores
+      setDirections(null);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [
+    isLoaded, 
+    origin, 
+    destination, 
+    brAduanaCoordinates, 
+    pyAduanaCoordinates,
+    originPlaceId,
+    destinationPlaceId
+    // Removemos directionsSegments das dependências para evitar loops infinitos
+  ]);
+  
+  // Buscar direções quando os dados estiverem disponíveis
+  useEffect(() => {
+    if (isLoaded) {
+      fetchDirections();
+    }
+  }, [fetchDirections, isLoaded]);
+  
+  // Manipuladores para zoom
+  const handleZoomIn = () => setMapZoom(prev => Math.min(prev + 1, 20));
+  const handleZoomOut = () => setMapZoom(prev => Math.max(prev - 1, 1));
+  
+  // Estado para controlar o tipo de visualização do mapa (rotas ou só marcadores)
+  const [mapViewMode, setMapViewMode] = useState<'routes' | 'markers'>('routes');
+  
+  // Handler para alternar entre tipos de visualização
+  const toggleMapViewMode = () => {
+    setMapViewMode(prev => prev === 'routes' ? 'markers' : 'routes');
+  };
+  
+  // Computar o centro ideal para o mapa com ajuste para os 4 pontos principais
+  const [initialBounds, setInitialBounds] = useState<google.maps.LatLngBounds | null>(null);
+  
+  // Cria bounds iniciais baseados em todos os pontos importantes (origem, destino, aduanas)
+  useEffect(() => {
+    // Só ajustamos o bounds se temos ambas as coordenadas de aduana disponíveis
+    if (brAduanaCoordinates && pyAduanaCoordinates) {
+      // Criamos novos bounds para cálculo
+      const bounds = new google.maps.LatLngBounds();
+      
+      // Adicionamos as aduanas sempre
+      bounds.extend(new google.maps.LatLng(brAduanaCoordinates.lat, brAduanaCoordinates.lng));
+      bounds.extend(new google.maps.LatLng(pyAduanaCoordinates.lat, pyAduanaCoordinates.lng));
+      
+      // Adicionamos origem e destino se temos coordenadas deles disponíveis através das direções
+      if (directions?.routes[0]?.legs?.length) {
+        // Origem
+        if (directions.routes[0].legs[0]?.start_location) {
+          bounds.extend(directions.routes[0].legs[0].start_location);
+        }
+        
+        // Destino
+        const lastLeg = directions.routes[0].legs[directions.routes[0].legs.length - 1];
+        if (lastLeg?.end_location) {
+          bounds.extend(lastLeg.end_location);
+        }
+      }
+      
+      // Adicionar um pouco de margem aos bounds
+      const ne = bounds.getNorthEast();
+      const sw = bounds.getSouthWest();
+      const latSpan = ne.lat() - sw.lat();
+      const lngSpan = ne.lng() - sw.lng();
+      
+      bounds.extend(new google.maps.LatLng(
+        sw.lat() - latSpan * 0.15,
+        sw.lng() - lngSpan * 0.15
+      ));
+      
+      bounds.extend(new google.maps.LatLng(
+        ne.lat() + latSpan * 0.15,
+        ne.lng() + lngSpan * 0.15
+      ));
+      
+      // Salvar os bounds calculados
+      setInitialBounds(bounds);
+    }
+  }, [directions, brAduanaCoordinates, pyAduanaCoordinates]);
+  
+  // Função para calcular o zoom ideal com base nos bounds
+  useEffect(() => {
+    if (initialBounds) {
+      // Tentar ajustar o zoom baseado no tamanho dos bounds
+      const ne = initialBounds.getNorthEast();
+      const sw = initialBounds.getSouthWest();
+      const latSpan = ne.lat() - sw.lat();
+      const lngSpan = ne.lng() - sw.lng();
+      
+      // Lógica básica para determinar um zoom adequado
+      let newZoom = 8; // Valor padrão
+      const maxSpan = Math.max(latSpan, lngSpan);
+      
+      if (maxSpan < 0.5) newZoom = 10;
+      else if (maxSpan < 1) newZoom = 9;
+      else if (maxSpan < 2) newZoom = 8;
+      else if (maxSpan < 4) newZoom = 7;
+      else if (maxSpan < 8) newZoom = 6;
+      else newZoom = 5;
+      
+      // Atualizar o zoom
+      setMapZoom(newZoom);
+    }
+  }, [initialBounds]);
+  
+  // Computar o centro ideal para o mapa
+  const mapCenter = useMemo(() => {
+    // Se temos bounds iniciais calculados, usamos eles
+    if (initialBounds) {
+      return initialBounds.getCenter().toJSON();
+    }
+    
+    // Se temos direções, usar o centro delas
+    if (directions?.routes[0]?.bounds) {
+      return directions.routes[0].bounds.getCenter().toJSON();
+    }
+    
+    // Se temos coordenadas das aduanas, centralizar entre elas
+    if (brAduanaCoordinates && pyAduanaCoordinates) {
+      return {
+        lat: (brAduanaCoordinates.lat + pyAduanaCoordinates.lat) / 2,
+        lng: (brAduanaCoordinates.lng + pyAduanaCoordinates.lng) / 2
+      };
+    }
+    
+    // Fallback para o centro padrão
+    return DEFAULT_CENTER;
+  }, [directions, brAduanaCoordinates, pyAduanaCoordinates, initialBounds]);
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="p-4 border-b border-neutral-200 dark:border-neutral-700 flex justify-between items-center">
+        <h4 className="font-heading font-bold text-neutral-800 dark:text-white">Mapa da Rota</h4>
+        <div className="flex space-x-2">
+          <Button variant="ghost" size="icon" onClick={fetchDirections} title="Recarregar rotas">
+            <RefreshCw className="h-4 w-4 text-neutral-500 dark:text-neutral-400" />
+          </Button>
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={toggleMapViewMode}
+            title={mapViewMode === 'routes' ? "Ver apenas marcadores" : "Ver rotas completas"}
+          >
+            <Maximize className="h-4 w-4 text-neutral-500 dark:text-neutral-400" />
+          </Button>
+        </div>
+      </div>
+      
+      <div className="p-2">
+        <div className="relative h-64 md:h-80 w-full rounded-lg overflow-hidden bg-neutral-200 dark:bg-neutral-700">
+          {!isLoaded ? (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="animate-spin h-10 w-10 border-4 border-primary border-t-transparent rounded-full"></div>
+            </div>
+          ) : (
+            <>
+              {/* Mensagem de aviso sobre rotas */}
+              {mapViewMode === 'routes' && !directions && (
+                <div className="absolute top-4 left-0 right-0 z-10 flex justify-center">
+                  <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-2 rounded-md shadow-sm text-sm">
+                    Visualizando apenas os pontos principais. Clique em <RefreshCw className="inline-block h-3 w-3 mx-1" /> para tentar carregar as rotas.
+                  </div>
+                </div>
+              )}
+              
+              <GoogleMap
+                mapContainerStyle={{ width: '100%', height: '100%' }}
+                center={mapCenter}
+                zoom={mapZoom}
+                options={{
+                  disableDefaultUI: true,
+                  zoomControl: false,
+                  fullscreenControl: false,
+                  mapTypeControl: false,
+                  styles: [
+                    {
+                      featureType: "administrative.country",
+                      elementType: "geometry.stroke",
+                      stylers: [{ color: "#ff0000" }, { weight: 2 }]
+                    }
+                  ]
+                }}
+              >
+                {/* Renderização de rotas separadas para cada segmento */}
+                {mapViewMode === 'routes' && (
+                  <>
+                    {/* Rota da origem até a aduana paraguaia (limite sem cruzar para o Brasil) - em AZUL */}
+                    {directionsSegments.originToCustoms && (
+                      <DirectionsRenderer
+                        directions={directionsSegments.originToCustoms}
+                        options={{
+                          suppressMarkers: true,
+                          polylineOptions: {
+                            strokeColor: '#4f46e5', // Azul
+                            strokeWeight: 5,
+                            strokeOpacity: 0.8
+                          }
+                        }}
+                      />
+                    )}
+                    
+                    {/* Rota da aduana brasileira até o destino - em VERMELHO */}
+                    {directionsSegments.customsToDestination && (
+                      <DirectionsRenderer
+                        directions={directionsSegments.customsToDestination}
+                        options={{
+                          suppressMarkers: true,
+                          polylineOptions: {
+                            strokeColor: '#e11d48', // Vermelho
+                            strokeWeight: 5,
+                            strokeOpacity: 0.8
+                          }
+                        }}
+                      />
+                    )}
+                    
+                    {/* Fallback para rota única se não temos os segmentos */}
+                    {!directionsSegments.originToCustoms && !directionsSegments.customsToDestination && directions && (
+                      <DirectionsRenderer
+                        directions={directions}
+                        options={{
+                          suppressMarkers: true,
+                          polylineOptions: {
+                            strokeColor: '#4f46e5',
+                            strokeWeight: 5,
+                            strokeOpacity: 0.8
+                          }
+                        }}
+                      />
+                    )}
+                  </>
+                )}
+                
+                {/* Marcadores de origem removidos conforme solicitado */}
+                
+                {/* Marcadores de destino e aduanas removidos conforme solicitado */}
+                
+                {/* InfoWindows removidas conforme solicitado */}
+              </GoogleMap>
+              
+              {/* Map Controls */}
+              <div className="absolute bottom-4 right-4 bg-white dark:bg-neutral-800 rounded-lg shadow-md p-2 flex space-x-2">
+                <Button variant="ghost" size="icon" className="w-8 h-8" onClick={handleZoomIn}>
+                  <ZoomIn className="h-4 w-4 text-neutral-700 dark:text-neutral-300" />
+                </Button>
+                <Button variant="ghost" size="icon" className="w-8 h-8" onClick={handleZoomOut}>
+                  <ZoomOut className="h-4 w-4 text-neutral-700 dark:text-neutral-300" />
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+      
+      {/* Route Details */}
+      <CardContent className="p-4 border-t border-neutral-200 dark:border-neutral-700">
+        <h5 className="font-semibold text-neutral-800 dark:text-white mb-3">Detalhes da Rota</h5>
+        
+        <div className="flex items-start">
+          <div className="mr-3 flex flex-col items-center">
+            <div className="w-3 h-3 rounded-full bg-green-500"></div>
+            <div className="w-0.5 h-10 bg-neutral-300 dark:bg-neutral-600 my-1"></div>
+            <div className="w-3 h-3 rounded-full bg-primary-500"></div>
+            <div className="w-0.5 h-10 bg-neutral-300 dark:bg-neutral-600 my-1"></div>
+            <div className="w-3 h-3 rounded-full bg-red-500"></div>
+          </div>
+          
+          <div className="flex-1">
+            <div className="mb-3">
+              <p className="font-medium text-neutral-800 dark:text-white">{originLocation}</p>
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">Origem</p>
+            </div>
+            
+            <div className="mb-3 bg-neutral-50 dark:bg-neutral-700 p-2 rounded-lg">
+              <p className="font-medium text-neutral-800 dark:text-white">
+                Aduana: {customsPointName}
+              </p>
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">Ponto de passagem aduaneira</p>
+            </div>
+            
+            <div>
+              <p className="font-medium text-neutral-800 dark:text-white">{destinationLocation}</p>
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">Destino</p>
+            </div>
+          </div>
+          
+          <div className="text-right">
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">0 km</p>
+            <div className="h-10"></div>
+            <p className="text-sm font-medium text-primary-500">{originToCustomsDistance} km</p>
+            <div className="h-10"></div>
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">{totalDistance || calculatedTotalDistance} km</p>
+          </div>
+        </div>
+        
+        {/* Distância total detalhada */}
+        <div className="mt-4 bg-neutral-50 dark:bg-neutral-800 p-3 rounded-lg text-sm">
+          <div className="flex justify-between mb-1">
+            <span className="text-neutral-600 dark:text-neutral-400">Origem → Aduana (PY):</span>
+            <span className="font-medium text-neutral-800 dark:text-white">{originToCustomsDistance} km</span>
+          </div>
+          <div className="flex justify-between mb-1">
+            <span className="text-neutral-600 dark:text-neutral-400">Travessia entre aduanas:</span>
+            <span className="font-medium text-neutral-800 dark:text-white">{crossingDistance} km</span>
+          </div>
+          <div className="flex justify-between mb-1">
+            <span className="text-neutral-600 dark:text-neutral-400">Aduana (BR) → Destino:</span>
+            <span className="font-medium text-neutral-800 dark:text-white">{customsToDestinationDistance} km</span>
+          </div>
+          <div className="flex justify-between pt-2 border-t border-neutral-200 dark:border-neutral-700">
+            <span className="font-medium text-neutral-800 dark:text-white">Distância Total:</span>
+            <span className="font-bold text-neutral-800 dark:text-white">{totalDistance || calculatedTotalDistance} km</span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
+export default RouteMap;

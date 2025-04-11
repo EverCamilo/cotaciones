@@ -1,0 +1,10 @@
+import { useState, useMemo, useCallback, useEffect } from "react";
+import { Card, CardContent } from "../ui/card";
+import { Maximize, RefreshCw, ZoomIn, ZoomOut } from "lucide-react";
+import { Button } from "../ui/button";
+import { GoogleMap, useJsApiLoader, Marker, DirectionsRenderer, InfoWindow } from '@react-google-maps/api';
+
+// Corrigindo o problema de recarregamento do script definindo as bibliotecas como constante
+// Isso evita o aviso "Performance warning! LoadScript has been reloaded unintentionally!"
+// Definindo o tipo correto para as bibliotecas
+type Library = 'maps' | 'places' | 'drawing' | 'geometry' | 'visualization';

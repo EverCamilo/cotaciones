@@ -1,0 +1,52 @@
+{
+  "model_type": "RandomForest",
+  "training_date": "2025-04-10T21:10:16.256090",
+  "metrics": {
+    "r2": 0.995791262602492,
+    "rmse": 2.98791351567899,
+    "mae": 0.4922072072072073,
+    "cv_rmse": 6.128652719124442,
+    "pct_diff": 0.0030292045495886495,
+    "feature_importance": {
+      "KM": 0.0105114277397075,
+      "M\u00eas": 0.005111637627452762,
+      "Trimestre": 0.0007172942767258547,
+      "Ano": 0.0023161000318586544,
+      "Lat_Origem": 0.0005570462000231034,
+      "Lng_Origem": 0.0010040592403972037,
+      "Lat_Destino": 0.0009430753506769589,
+      "Lng_Destino": 0.001504218681735273,
+      "Lat_Origem_Imp": 0.0004851972600939427,
+      "Lng_Origem_Imp": 0.0009331235815458222,
+      "Lat_Destino_Imp": 0.000986776686689537,
+      "Lng_Destino_Imp": 0.0015721550915748581,
+      "Valor_por_km": 0.04376324042556612,
+      "Route_Mean": 0.9280206949212934,
+      "Origin_Cluster_Mean": 0.0002541585743134499,
+      "Dest_Cluster_Mean": 0.001319794310345704
+    }
+  },
+  "n_samples": 3328,
+  "n_synthetic_samples": 100,
+  "n_original_samples": 3228,
+  "features": [
+    "KM",
+    "M\u00eas",
+    "Trimestre",
+    "Ano",
+    "Lat_Origem",
+    "Lng_Origem",
+    "Lat_Destino",
+    "Lng_Destino",
+    "Lat_Origem_Imp",
+    "Lng_Origem_Imp",
+    "Lat_Destino_Imp",
+    "Lng_Destino_Imp",
+    "Valor_por_km",
+    "Route_Mean",
+    "Origin_Cluster_Mean",
+    "Dest_Cluster_Mean"
+  ],
+  "coordinate_radius": 50,
+  "enhancement_description": "Modelo otimizado para dar maior peso \u00e0s coordenadas geogr\u00e1ficas"
+}

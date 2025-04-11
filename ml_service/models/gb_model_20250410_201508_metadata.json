@@ -1,0 +1,34 @@
+{
+  "model_type": "GradientBoosting",
+  "training_date": "2025-04-10T20:15:08.339824",
+  "metrics": {
+    "r2": 0.992969608445931,
+    "rmse": 3.8058808194809215,
+    "mae": 1.7621950469822465,
+    "cv_rmse": 17.304382915602307,
+    "pct_diff": 1.2150213690469636,
+    "feature_importance": {
+      "distance": 0.6018581214130749,
+      "month": 0.03766212624077458,
+      "quarter": 9.092907787151145e-05,
+      "year": 0.0810505988704019,
+      "value_per_km": 0.15797147755769375,
+      "origin_lat": 0.0037746890705335117,
+      "origin_lng": 0.04587649676564166,
+      "destination_lat": 0.05106400837266728,
+      "destination_lng": 0.02065155263134085
+    }
+  },
+  "feature_names": [
+    "distance",
+    "month",
+    "quarter",
+    "year",
+    "value_per_km",
+    "origin_lat",
+    "origin_lng",
+    "destination_lat",
+    "destination_lng"
+  ],
+  "model_params": "{'alpha': 0.9, 'ccp_alpha': 0.0, 'criterion': 'friedman_mse', 'init': None, 'learning_rate': 0.1, 'loss': 'squared_error', 'max_depth': 3, 'max_features': None, 'max_leaf_nodes': None, 'min_impurity_decrease': 0.0, 'min_samples_leaf': 1, 'min_samples_split': 2, 'min_weight_fraction_leaf': 0.0, 'n_estimators': 100, 'n_iter_no_change': None, 'random_state': 42, 'subsample': 1.0, 'tol': 0.0001, 'validation_fraction': 0.1, 'verbose': 0, 'warm_start': False}"
+}

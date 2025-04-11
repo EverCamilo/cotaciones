@@ -1,0 +1,10 @@
+Trans Fenix - Sistema pronto para produção
+Versão: 1.0.0
+Data: 10/04/2025
+
+Recursos disponíveis:
+- Calculadora de frete internacional entre Brasil e Paraguai
+- Recomendações de preço usando Machine Learning (99.29% de precisão)
+- Otimização automática de rota e aduana
+- Sistema de feedback para aprendizado contínuo
+- Exportação de cotações e relatórios
